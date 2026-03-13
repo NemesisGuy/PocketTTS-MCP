@@ -7,13 +7,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tts_core import synthesize_to_wav
+from tts_core import resolve_default_voice, synthesize_to_wav
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate speech and play it locally.")
     parser.add_argument("--text", required=True, help="Text to synthesize")
-    parser.add_argument("--voice", default="alba", help="Voice name or prompt path")
+    parser.add_argument(
+        "--voice",
+        default=resolve_default_voice(),
+        help="Voice name or prompt path",
+    )
     parser.add_argument("--output", default="outputs/client.wav", help="Output wav path")
     parser.add_argument("--no-play", action="store_true", help="Do not play audio")
     return parser.parse_args()

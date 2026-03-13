@@ -2,10 +2,13 @@ import threading
 import time
 import wave
 from pathlib import Path
+import platform
+import re
 
 import numpy as np
+import safetensors.torch
 from dotenv import load_dotenv
-from pocket_tts import TTSModel
+from pocket_tts import TTSModel, export_model_state
 
 BUILTIN_VOICES = [
     "alba",
@@ -18,13 +21,58 @@ BUILTIN_VOICES = [
     "azelma",
 ]
 
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_VOICE_NAME = "bricktop"
+
 _model = None
 _model_lock = threading.RLock()
 _voice_cache = {}
 
 
+def _custom_voice_dir() -> Path:
+    base = BASE_DIR / "voice_embeddings"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _outputs_dir() -> Path:
+    out = BASE_DIR / "outputs"
+    out.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def _normalize_voice_name(name: str) -> str:
+    normalized = (name or "").strip().lower()
+    normalized = re.sub(r"[^a-z0-9_-]+", "-", normalized)
+    normalized = re.sub(r"-+", "-", normalized).strip("-")
+    if not normalized:
+        raise ValueError("voice name must contain letters or numbers")
+    return normalized
+
+
+def _custom_voice_path(name: str) -> Path:
+    return _custom_voice_dir() / f"{_normalize_voice_name(name)}.safetensors"
+
+
+def _custom_voice_names() -> list[str]:
+    return sorted(p.stem for p in _custom_voice_dir().glob("*.safetensors"))
+
+
+def _load_model_state(path: Path) -> dict:
+    flat = safetensors.torch.load_file(str(path))
+    nested = {}
+    for key, value in flat.items():
+        if "/" not in key:
+            continue
+        module_name, tensor_name = key.split("/", 1)
+        nested.setdefault(module_name, {})[tensor_name] = value
+    if not nested:
+        raise ValueError(f"Invalid voice embedding format: {path}")
+    return nested
+
+
 def load_env() -> None:
-    env_path = Path("secrets.env")
+    env_path = BASE_DIR / "secrets.env"
     if env_path.exists():
         load_dotenv(dotenv_path=env_path)
 
@@ -42,9 +90,17 @@ def get_voice_state(voice: str):
     normalized_voice = (voice or "").strip() or "alba"
     with _model_lock:
         if normalized_voice not in _voice_cache:
-            _voice_cache[normalized_voice] = get_model().get_state_for_audio_prompt(
-                normalized_voice
-            )
+            custom_path = _custom_voice_path(normalized_voice)
+            if custom_path.exists():
+                _voice_cache[normalized_voice] = _load_model_state(custom_path)
+            else:
+                if normalized_voice not in BUILTIN_VOICES:
+                    raise ValueError(
+                        f"Unknown voice '{normalized_voice}'. Available voices: {', '.join(list_voices())}"
+                    )
+                _voice_cache[normalized_voice] = get_model().get_state_for_audio_prompt(
+                    normalized_voice
+                )
         return _voice_cache[normalized_voice]
 
 
@@ -94,19 +150,65 @@ def split_text(text: str, max_chars: int = 180) -> list[str]:
 
 
 def list_voices() -> list[str]:
-    return BUILTIN_VOICES.copy()
+    combined = BUILTIN_VOICES.copy()
+    for custom in _custom_voice_names():
+        if custom not in combined:
+            combined.append(custom)
+    return combined
+
+
+def resolve_default_voice() -> str:
+    voices = list_voices()
+    if DEFAULT_VOICE_NAME in voices:
+        return DEFAULT_VOICE_NAME
+    if "alba" in voices:
+        return "alba"
+    return voices[0] if voices else "alba"
+
+
+def create_voice_embedding(
+    voice_name: str,
+    audio_path: str,
+    overwrite: bool = False,
+) -> dict:
+    source = Path(audio_path)
+    if not source.exists():
+        raise FileNotFoundError(f"Audio sample not found: {source}")
+
+    normalized_name = _normalize_voice_name(voice_name)
+    destination = _custom_voice_path(normalized_name)
+
+    if destination.exists() and not overwrite:
+        raise FileExistsError(
+            f"Voice embedding already exists: {destination.name}. Use overwrite=True to replace."
+        )
+
+    model = get_model()
+    state = model.get_state_for_audio_prompt(str(source))
+    export_model_state(state, str(destination))
+
+    with _model_lock:
+        _voice_cache[normalized_name] = _load_model_state(destination)
+
+    return {
+        "voice": normalized_name,
+        "embedding_path": str(destination),
+        "source_audio": str(source),
+        "voices": list_voices(),
+    }
 
 
 def synthesize_to_wav(
     text: str,
-    voice: str = "alba",
+    voice: str | None = None,
     output_path: str | None = None,
 ) -> dict:
     if not text or not text.strip():
         raise ValueError("text must not be empty")
 
+    selected_voice = (voice or "").strip() or resolve_default_voice()
     model = get_model()
-    voice_state = get_voice_state(voice)
+    voice_state = get_voice_state(selected_voice)
 
     started = time.perf_counter()
     audio_tensor = model.generate_audio(voice_state, text)
@@ -114,7 +216,11 @@ def synthesize_to_wav(
 
     audio_np = _tensor_to_float_np(audio_tensor)
 
-    destination = Path(output_path) if output_path else Path("outputs") / f"tts_{int(time.time())}.wav"
+    destination = (
+        Path(output_path)
+        if output_path
+        else _outputs_dir() / f"tts_{int(time.time())}.wav"
+    )
     write_wav(destination, model.sample_rate, audio_np)
 
     duration_seconds = float(audio_np.shape[-1]) / float(model.sample_rate)
@@ -123,13 +229,13 @@ def synthesize_to_wav(
         "sample_rate": int(model.sample_rate),
         "duration_seconds": round(duration_seconds, 3),
         "generation_seconds": round(elapsed, 3),
-        "voice": voice,
+        "voice": selected_voice,
     }
 
 
 def synthesize_chunked_to_wavs(
     text: str,
-    voice: str = "alba",
+    voice: str | None = None,
     chunk_size: int = 180,
     output_dir: str | None = None,
     merged_output_path: str | None = None,
@@ -144,11 +250,12 @@ def synthesize_chunked_to_wavs(
     if not chunks:
         raise ValueError("text produced no chunks")
 
+    selected_voice = (voice or "").strip() or resolve_default_voice()
     model = get_model()
-    voice_state = get_voice_state(voice)
+    voice_state = get_voice_state(selected_voice)
 
     ts = int(time.time())
-    chunk_base_dir = Path(output_dir) if output_dir else Path("outputs") / f"chunks_{ts}"
+    chunk_base_dir = Path(output_dir) if output_dir else _outputs_dir() / f"chunks_{ts}"
     chunk_base_dir.mkdir(parents=True, exist_ok=True)
 
     chunk_results = []
@@ -186,13 +293,13 @@ def synthesize_chunked_to_wavs(
         merged_path_obj = (
             Path(merged_output_path)
             if merged_output_path
-            else Path("outputs") / f"tts_chunked_{ts}.wav"
+            else _outputs_dir() / f"tts_chunked_{ts}.wav"
         )
         write_wav(merged_path_obj, model.sample_rate, merged)
         merged_path = str(merged_path_obj)
 
     return {
-        "voice": voice,
+        "voice": selected_voice,
         "chunk_count": len(chunk_results),
         "chunk_size": int(chunk_size),
         "sample_rate": int(model.sample_rate),
@@ -201,3 +308,21 @@ def synthesize_chunked_to_wavs(
         "merged_output_path": merged_path,
         "chunks": chunk_results,
     }
+
+
+def play_audio_file(path: str, block: bool = True) -> dict:
+    audio_path = Path(path)
+    if not audio_path.exists():
+        raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+    if platform.system() != "Windows":
+        raise RuntimeError("Local playback is currently supported on Windows only")
+
+    import winsound
+
+    flags = winsound.SND_FILENAME
+    if not block:
+        flags |= winsound.SND_ASYNC
+
+    winsound.PlaySound(str(audio_path), flags)
+    return {"played": True, "path": str(audio_path), "blocking": bool(block)}

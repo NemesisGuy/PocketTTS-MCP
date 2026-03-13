@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "pockettts-local": {
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": [
+        "${workspaceFolder}\\server.py"
+      ]
+    }
+  }
+}

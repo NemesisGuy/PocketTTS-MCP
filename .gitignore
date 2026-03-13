@@ -11,3 +11,4 @@ secrets.env
 models/
 outputs/
 .hf-cache/
+voice_embeddings/
