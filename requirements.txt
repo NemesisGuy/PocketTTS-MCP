@@ -1,0 +1,5 @@
+huggingface_hub>=0.34.0
+python-dotenv>=1.0.1
+mcp>=1.20.0
+pocket-tts>=1.1.1
+gradio>=5.22.0

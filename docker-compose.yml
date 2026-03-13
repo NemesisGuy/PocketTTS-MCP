@@ -1,0 +1,12 @@
+services:
+  pockettts-gui:
+    build: .
+    ports:
+      - "7860:7860"
+    env_file:
+      - secrets.env
+    environment:
+      - POCKETTTS_MODE=gui
+    volumes:
+      - ./models:/app/models
+      - ./outputs:/app/outputs
