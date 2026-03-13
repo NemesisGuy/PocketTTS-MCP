@@ -128,9 +128,11 @@ def create_app() -> gr.Blocks:
 
 def main() -> None:
     app = create_app()
+    inbrowser = os.getenv("POCKETTTS_GUI_INBROWSER", "0") == "1"
     app.launch(
         server_name="0.0.0.0",
         server_port=int(os.getenv("POCKETTTS_GUI_PORT", "7860")),
+        inbrowser=inbrowser,
         theme=gr.themes.Soft(),
     )
 

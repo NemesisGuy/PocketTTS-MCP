@@ -1,4 +1,5 @@
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -6,8 +7,8 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from tts_core import create_voice_embedding
 from tts_core import list_voices as core_list_voices
-from tts_core import play_audio_file
 from tts_core import resolve_default_voice
+from tts_core import speak_now_local
 from tts_core import synthesize_chunked_to_wavs
 from tts_core import synthesize_to_wav
 
@@ -16,16 +17,42 @@ BASE_DIR = Path(__file__).resolve().parent
 GUI_PORT = os.getenv("POCKETTTS_GUI_PORT", "7860")
 
 
+def _is_port_open(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.25)
+        return sock.connect_ex((host, port)) == 0
+
+
 def _start_gui_sidecar() -> None:
     if os.getenv("POCKETTTS_AUTOSTART_GUI", "1") != "1":
         return
 
+    try:
+        port = int(GUI_PORT)
+    except ValueError:
+        port = 7860
+
+    if _is_port_open("127.0.0.1", port):
+        return
+
     env = os.environ.copy()
-    env.setdefault("POCKETTTS_GUI_PORT", GUI_PORT)
+    env.setdefault("POCKETTTS_GUI_PORT", str(port))
+    env.setdefault("POCKETTTS_GUI_INBROWSER", "1")
+
+    log_dir = BASE_DIR / "outputs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "gui_sidecar.log"
+
+    with log_path.open("a", encoding="utf-8") as log_file:
+        log_file.write("\n--- Starting GUI sidecar ---\n")
+
+    log_file = log_path.open("a", encoding="utf-8")
     subprocess.Popen(
         [sys.executable, str(BASE_DIR / "gui.py")],
         cwd=str(BASE_DIR),
         env=env,
+        stdout=log_file,
+        stderr=log_file,
     )
 
 
@@ -73,11 +100,15 @@ def speak_now(
     voice: str = resolve_default_voice(),
     output_path: str | None = None,
     block: bool = True,
+    keep_file: bool = False,
 ) -> dict:
-    result = synthesize_to_wav(text=text, voice=voice, output_path=output_path)
-    playback = play_audio_file(result["output_path"], block=block)
-    result["playback"] = playback
-    return result
+    return speak_now_local(
+        text=text,
+        voice=voice,
+        output_path=output_path,
+        block=block,
+        keep_file=keep_file,
+    )
 
 
 @mcp.tool(description="Create a reusable voice embedding from an audio sample.")
@@ -94,5 +125,8 @@ def create_voice(
 
 
 if __name__ == "__main__":
-    _start_gui_sidecar()
-    mcp.run()
+    try:
+        _start_gui_sidecar()
+        mcp.run()
+    except KeyboardInterrupt:
+        print("PocketTTS-MCP stopped.")

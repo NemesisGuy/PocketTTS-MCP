@@ -4,6 +4,7 @@ import wave
 from pathlib import Path
 import platform
 import re
+import io
 
 import numpy as np
 import safetensors.torch
@@ -123,6 +124,18 @@ def _tensor_to_float_np(audio_tensor) -> np.ndarray:
     return audio
 
 
+def _wav_bytes_from_float(audio_float32: np.ndarray, sample_rate: int) -> bytes:
+    audio = np.clip(audio_float32, -1.0, 1.0)
+    pcm16 = (audio * 32767.0).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm16.tobytes())
+    return buf.getvalue()
+
+
 def split_text(text: str, max_chars: int = 180) -> list[str]:
     stripped = text.strip()
     if not stripped:
@@ -233,6 +246,32 @@ def synthesize_to_wav(
     }
 
 
+def synthesize_audio(
+    text: str,
+    voice: str | None = None,
+) -> dict:
+    if not text or not text.strip():
+        raise ValueError("text must not be empty")
+
+    selected_voice = (voice or "").strip() or resolve_default_voice()
+    model = get_model()
+    voice_state = get_voice_state(selected_voice)
+
+    started = time.perf_counter()
+    audio_tensor = model.generate_audio(voice_state, text)
+    elapsed = time.perf_counter() - started
+
+    audio_np = _tensor_to_float_np(audio_tensor)
+    duration_seconds = float(audio_np.shape[-1]) / float(model.sample_rate)
+    return {
+        "audio": audio_np,
+        "sample_rate": int(model.sample_rate),
+        "duration_seconds": round(duration_seconds, 3),
+        "generation_seconds": round(elapsed, 3),
+        "voice": selected_voice,
+    }
+
+
 def synthesize_chunked_to_wavs(
     text: str,
     voice: str | None = None,
@@ -326,3 +365,54 @@ def play_audio_file(path: str, block: bool = True) -> dict:
 
     winsound.PlaySound(str(audio_path), flags)
     return {"played": True, "path": str(audio_path), "blocking": bool(block)}
+
+
+def play_audio_bytes(wav_bytes: bytes, block: bool = True) -> dict:
+    if platform.system() != "Windows":
+        raise RuntimeError("Local playback is currently supported on Windows only")
+
+    if not block:
+        raise RuntimeError("In-memory playback supports blocking mode only")
+
+    import winsound
+
+    winsound.PlaySound(wav_bytes, winsound.SND_MEMORY)
+    return {"played": True, "path": None, "blocking": True, "mode": "memory"}
+
+
+def speak_now_local(
+    text: str,
+    voice: str | None = None,
+    output_path: str | None = None,
+    block: bool = True,
+    keep_file: bool = False,
+) -> dict:
+    # Default behavior avoids disk writes by using in-memory playback.
+    if output_path is None and block and not keep_file:
+        generated = synthesize_audio(text=text, voice=voice)
+        wav_bytes = _wav_bytes_from_float(generated["audio"], generated["sample_rate"])
+        playback = play_audio_bytes(wav_bytes, block=True)
+        return {
+            "output_path": None,
+            "sample_rate": generated["sample_rate"],
+            "duration_seconds": generated["duration_seconds"],
+            "generation_seconds": generated["generation_seconds"],
+            "voice": generated["voice"],
+            "playback": playback,
+            "persisted": False,
+        }
+
+    result = synthesize_to_wav(text=text, voice=voice, output_path=output_path)
+    playback = play_audio_file(result["output_path"], block=block)
+    result["playback"] = playback
+    result["persisted"] = True
+
+    # Auto-cleanup transient file when caller did not ask to keep it.
+    if output_path is None and block and not keep_file:
+        try:
+            Path(result["output_path"]).unlink(missing_ok=True)
+            result["persisted"] = False
+        except OSError:
+            pass
+
+    return result

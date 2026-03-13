@@ -61,6 +61,12 @@ Run MCP server (stdio):
 
 Important: this is a stdio server for MCP clients. Do not type random text or press Enter in that terminal after launch. Any manual input is treated as JSON-RPC and can produce `Invalid JSON` errors.
 By default, starting MCP also launches the Gradio GUI sidecar on port 7860.
+It will try to open your browser automatically.
+
+If sidecar GUI does not appear, check:
+
+- `http://localhost:7860`
+- `outputs/gui_sidecar.log` for startup errors
 
 Disable sidecar launch if needed:
 
@@ -120,6 +126,7 @@ The project includes [server.py](server.py), which exposes PocketTTS tools over 
 - `synthesize(text, voice="alba", output_path=None)`
 - `synthesize_chunked(text, voice="alba", chunk_size=180, output_dir=None, merged_output_path=None, merge_output=True)`
 - `speak_now(text, voice="alba", output_path=None, block=True)`
+- `speak_now(text, voice="alba", output_path=None, block=True, keep_file=False)`
 - `synthesize(text, voice="bricktop", output_path=None)` (default when available)
 - `synthesize_chunked(text, voice="bricktop", chunk_size=180, output_dir=None, merged_output_path=None, merge_output=True)` (default when available)
 - `speak_now(text, voice="bricktop", output_path=None, block=True)` (default when available)
@@ -130,6 +137,7 @@ If `output_path` is not provided, audio files are written to `outputs/tts_<times
 For chunked generation, chunk WAV files are written into an output folder and can optionally be merged into one file.
 
 Use `speak_now(...)` when you want the tool call to immediately play audio on your local Windows machine.
+By default, `speak_now` plays from memory and does not save a WAV file unless you set `keep_file=True` or provide `output_path`.
 
 ## Local GUI
 
