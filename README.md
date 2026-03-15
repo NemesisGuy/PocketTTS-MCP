@@ -123,13 +123,16 @@ The project includes [server.py](server.py), which exposes PocketTTS tools over 
 
 - `health()`
 - `list_voices()`
+- `list_output_devices()`
+- `get_audio_routing()`
+- `set_audio_routing(output_device=None, auto_chat=None, persist_to_config=False, config_path=None, server_name="pockettts-local")`
 - `synthesize(text, voice="alba", output_path=None)`
 - `synthesize_chunked(text, voice="alba", chunk_size=180, output_dir=None, merged_output_path=None, merge_output=True)`
 - `speak_now(text, voice="alba", output_path=None, block=True)`
-- `speak_now(text, voice="alba", output_path=None, block=True, keep_file=False)`
+- `speak_now(text, voice="alba", output_path=None, block=True, keep_file=False, output_device=None)`
 - `synthesize(text, voice="bricktop", output_path=None)` (default when available)
 - `synthesize_chunked(text, voice="bricktop", chunk_size=180, output_dir=None, merged_output_path=None, merge_output=True)` (default when available)
-- `speak_now(text, voice="bricktop", output_path=None, block=True)` (default when available)
+- `speak_now(text, voice="bricktop", output_path=None, block=True, output_device=None)` (default when available)
 - `create_voice(voice_name, audio_path, overwrite=False)`
 
 If `output_path` is not provided, audio files are written to `outputs/tts_<timestamp>.wav`.
@@ -138,6 +141,119 @@ For chunked generation, chunk WAV files are written into an output folder and ca
 
 Use `speak_now(...)` when you want the tool call to immediately play audio on your local Windows machine.
 By default, `speak_now` plays from memory and does not save a WAV file unless you set `keep_file=True` or provide `output_path`.
+Automatic routing: if your current Windows default output is an Arctis/Sonar **Game** device, PocketTTS will auto-route playback to the matching **Chat** device for that call.
+If headset routing is not applicable, it falls back to normal system output behavior.
+
+### Optional: Route Playback To Arctis Chat
+
+If you use SteelSeries Arctis and want TTS to go to Chat only sometimes, use optional device routing.
+
+1. In Windows Sound settings, confirm both output devices are present:
+	 - `Headphones (Arctis 7 Game)`
+	 - `Headset Earphone (Arctis 7 Chat)`
+2. Set default output to `Headphones (Arctis 7 Game)`.
+3. Set default communication device to `Headset Earphone (Arctis 7 Chat)`.
+4. In PocketTTS, choose Chat explicitly only when needed:
+
+MCP tool call example:
+
+```json
+{
+	"text": "Private headset output test.",
+	"voice": "bricktop",
+	"output_device": "Headset Earphone (Arctis 7 Chat)"
+}
+```
+
+List available output devices from MCP:
+
+```python
+list_output_devices()
+```
+
+If a device name appears multiple times (MME, WASAPI, WDM-KS), you can pass a device index instead of a name.
+
+CLI device checks:
+
+```powershell
+.\.venv\Scripts\python.exe clients/play_client.py --list-devices
+```
+
+CLI playback to Arctis Chat:
+
+```powershell
+.\.venv\Scripts\python.exe clients/play_client.py --text "Chat route test" --output-device "Headset Earphone (Arctis 7 Chat)"
+```
+
+Optional: write selected output device into MCP config (`POCKETTTS_OUTPUT_DEVICE`):
+
+```powershell
+.\.venv\Scripts\python.exe clients/play_client.py --set-mcp-device "Headset Earphone (Arctis 7 Chat)" --mcp-config "C:/Users/Reign/.gemini/antigravity/mcp_config.json" --mcp-server-name "pockettts-local"
+```
+
+Optional: update auto-chat behavior only in MCP config (`POCKETTTS_AUTO_CHAT`):
+
+```powershell
+.\.venv\Scripts\python.exe clients/play_client.py --set-mcp-auto-chat on --mcp-config "C:/Users/Reign/.gemini/antigravity/mcp_config.json" --mcp-server-name "pockettts-local"
+```
+
+Set both device and auto-chat in one command:
+
+```powershell
+.\.venv\Scripts\python.exe clients/play_client.py --set-mcp-device "Headset Earphone (Arctis 7 Chat)" --set-mcp-auto-chat off --mcp-config "C:/Users/Reign/.gemini/antigravity/mcp_config.json" --mcp-server-name "pockettts-local"
+```
+
+Set MCP config back to normal system output:
+
+```powershell
+.\.venv\Scripts\python.exe clients/play_client.py --set-mcp-device system --mcp-config "C:/Users/Reign/.gemini/antigravity/mcp_config.json" --mcp-server-name "pockettts-local"
+```
+
+Python device inspection (same concept as your snippet):
+
+```python
+import sounddevice as sd
+print(sd.query_devices())
+```
+
+If you prefer a global optional default for this project, set env var `POCKETTTS_OUTPUT_DEVICE` to device name or index.
+Use `POCKETTTS_OUTPUT_DEVICE=system` (or `default`) to force normal system output only.
+Use `POCKETTTS_AUTO_CHAT=0` to disable automatic Game -> Chat routing.
+
+### Three Configuration Paths
+
+You can configure routing in 3 ways:
+
+1. MCP tool (agent-driven):
+
+```python
+set_audio_routing(output_device="Headset Earphone (Arctis 7 Chat)")
+set_audio_routing(auto_chat="off")
+set_audio_routing(output_device="system", auto_chat="on", persist_to_config=True, config_path="C:/Users/Reign/.gemini/antigravity/mcp_config.json")
+```
+
+2. CLI command (user-driven):
+
+```powershell
+.\.venv\Scripts\python.exe clients/play_client.py --set-mcp-device "Headset Earphone (Arctis 7 Chat)" --set-mcp-auto-chat off --mcp-config "C:/Users/Reign/.gemini/antigravity/mcp_config.json" --mcp-server-name "pockettts-local"
+```
+
+3. Edit MCP config JSON directly by setting `env` keys under your server entry:
+
+```json
+{
+	"servers": {
+		"pockettts-local": {
+			"command": "...",
+			"args": ["..."],
+			"env": {
+				"POCKETTTS_OUTPUT_DEVICE": "system",
+				"POCKETTTS_AUTO_CHAT": "1"
+			}
+		}
+	}
+}
+```
 
 ## Local GUI
 
