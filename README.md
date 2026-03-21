@@ -255,6 +255,32 @@ set_audio_routing(output_device="system", auto_chat="on", persist_to_config=True
 }
 ```
 
+### AGENTS.md Example (Prefer Chat Output)
+
+If you want agent behavior to consistently prefer chat output, add this policy section to your `AGENTS.md`:
+
+```md
+## PocketTTS Audio Routing Policy
+
+When generating speech with pockettts-local:
+
+1. Prefer chat output channel first.
+2. Before calling `speak_now`, call:
+	- `set_audio_routing(output_device="Headset Earphone (Arctis 7 Chat)", auto_chat="off")`
+3. Then call `speak_now(...)`.
+
+Fallback behavior:
+
+1. If chat device is unavailable, call:
+	- `set_audio_routing(output_device="system", auto_chat="on")`
+2. Continue with `speak_now(...)`.
+
+Do not use CLI for routing when MCP tools are available.
+Use MCP tools first: `list_output_devices`, `get_audio_routing`, `set_audio_routing`.
+```
+
+For hardware-agnostic behavior, replace the explicit Arctis device name with: "pick first output device whose name contains `Chat`; otherwise use `system`".
+
 ## Local GUI
 
 Start the GUI:
@@ -302,7 +328,7 @@ To run MCP mode in Docker instead of GUI:
 docker run --rm -it --env-file secrets.env -e POCKETTTS_MODE=mcp pockettts-mcp
 ```
 
-### Example MCP config snippet
+### Example MCP Config (VS Code)
 
 ```json
 {
@@ -311,7 +337,41 @@ docker run --rm -it --env-file secrets.env -e POCKETTTS_MODE=mcp pockettts-mcp
 			"command": "C:/Users/Reign/Documents/Python Projects/PocketTTS-MCP/.venv/Scripts/python.exe",
 			"args": [
 				"C:/Users/Reign/Documents/Python Projects/PocketTTS-MCP/server.py"
-			]
+			],
+			"env": {
+				"POCKETTTS_AUTOSTART_GUI": "0",
+				"POCKETTTS_OUTPUT_DEVICE": "system",
+				"POCKETTTS_AUTO_CHAT": "1"
+			}
+		}
+	}
+}
+```
+
+### Example MCP Config (Google Antigravity)
+
+Antigravity uses `mcpServers` for launch command config. In your setup it can also use a separate `servers` block for env overrides.
+
+```json
+{
+	"mcpServers": {
+		"pockettts-local": {
+			"command": "C:\\Users\\Reign\\Documents\\Python Projects\\PocketTTS-MCP\\.venv\\Scripts\\python.exe",
+			"args": [
+				"C:\\Users\\Reign\\Documents\\Python Projects\\PocketTTS-MCP\\server.py"
+			],
+			"env": {
+				"POCKETTTS_AUTOSTART_GUI": "0",
+				"POCKETTTS_MCP_CONFIG_PATH": "C:\\Users\\Reign\\.gemini\\antigravity\\mcp_config.json"
+			}
+		}
+	},
+	"servers": {
+		"pockettts-local": {
+			"env": {
+				"POCKETTTS_OUTPUT_DEVICE": "40",
+				"POCKETTTS_AUTO_CHAT": "0"
+			}
 		}
 	}
 }
