@@ -15,7 +15,7 @@ Starter workspace for downloading and running a local PocketTTS model as an MCP 
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - A valid Hugging Face access token in `secrets.env`
 
 ## Quick Start
