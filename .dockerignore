@@ -4,3 +4,7 @@ __pycache__
 *.pyc
 models
 outputs
+secrets.env
+.gitignore
+.vscode
+voice_embeddings
