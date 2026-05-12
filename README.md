@@ -2,6 +2,13 @@
 
 ![PocketTTS-MCP](PocketTTS-MCP-logo.png)
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/MCP-server-7B2FF5?logo=github&logoColor=white" alt="MCP Server" />
+  <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/Hugging%20Face-pipeline-FFD21E?logo=huggingface&logoColor=black" alt="Hugging Face" />
+</p>
+
 Starter workspace for downloading and running a local PocketTTS model as an MCP server.
 
 ## What this includes
